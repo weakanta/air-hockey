@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Air Hockey</title>
+    <style>
+        canvas { border: 5px solid #333; background: #f0f0f0; display: block; margin: 0 auto; cursor: none; }
+        body { background: #222; text-align: center; color: white; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+    <h1>Air Hockey</h1>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // ゲーム設定
+        const paddleRadius = 30;
+        const puckRadius = 15;
+        let playerScore = 0;
+        let cpuScore = 0;
+
+        // オブジェクト初期位置
+        let player = { x: canvas.width / 2, y: canvas.height - 50 };
+        let cpu = { x: canvas.width / 2, y: 50 };
+        let puck = { x: canvas.width / 2, y: canvas.height / 2, dx: 3, dy: 3 };
+
+        // マウス移動でプレイヤーを操作
+        canvas.addEventListener("mousemove", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            player.x = e.clientX - rect.left;
+            // 自陣（下半分）から出られない制限
+            player.y = Math.max(canvas.height / 2 + paddleRadius, Math.min(canvas.height - paddleRadius, e.clientY - rect.top));
+        });
+
+        function update() {
+            // パックの移動
+            puck.x += puck.dx;
+            puck.y += puck.dy;
+
+            // 壁の跳ね返り（左右）
+            if (puck.x + puckRadius > canvas.width || puck.x - puckRadius < 0) {
+                puck.dx *= -1;
+            }
+
+            // ゴール判定（上下）
+            if (puck.y < 0) {
+                playerScore++;
+                resetPuck();
+            } else if (puck.y > canvas.height) {
+                cpuScore++;
+                resetPuck();
+            }
+
+            // CPUの動き（簡易的な追従）
+            cpu.x += (puck.x - cpu.x) * 0.1;
+
+            // 衝突判定（円同士の衝突）
+            checkCollision(player);
+            checkCollision(cpu);
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function checkCollision(paddle) {
+            let dist = Math.hypot(puck.x - paddle.x, puck.y - paddle.y);
+            if (dist < paddleRadius + puckRadius) {
+                // 跳ね返り計算
+                let angle = Math.atan2(puck.y - paddle.y, puck.x - paddle.x);
+                puck.dx = Math.cos(angle) * 7;
+                puck.dy = Math.sin(angle) * 7;
+            }
+        }
+
+        function resetPuck() {
+            puck.x = canvas.width / 2;
+            puck.y = canvas.height / 2;
+            puck.dx = (Math.random() - 0.5) * 6;
+            puck.dy = 5;
+        }
+
+        function draw() {
+            // 背景
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // センターライン
+            ctx.strokeStyle = "#ccc";
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+
+            // スコア
+            ctx.fillStyle = "#555";
+            ctx.font = "20px Arial";
+            ctx.fillText(`CPU: ${cpuScore}`, 20, 30);
+            ctx.fillText(`Player: ${playerScore}`, 20, canvas.height - 20);
+
+            // パドルとパック
+            drawCircle(player.x, player.y, paddleRadius, "blue");
+            drawCircle(cpu.x, cpu.y, paddleRadius, "red");
+            drawCircle(puck.x, puck.y, puckRadius, "black");
+        }
+
+        function drawCircle(x, y, r, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        update();
+    </script>
+</body>
+</html>
