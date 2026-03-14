@@ -1,15 +1,51 @@
-// Firebaseを使ってデータを送受信するイメージ
-import { update, onValue } from "firebase/database";
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Online Air Hockey</title>
+    <style>
+        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
+        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: block; margin: 10px auto; cursor: none; }
+        .info { font-size: 24px; margin-top: 10px; font-weight: bold; }
+        .status { font-size: 16px; color: #00ffcc; height: 20px; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div class="info">RED <span id="s2">0</span> - <span id="s1">0</span> BLUE</div>
+    <div id="status" class="status">接続中...</div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
 
-// 自分の位置を送信
-function sendMyPosition(x, y) {
-    update(dbRef, { [myRole]: { x: x, y: y } });
-}
+    <script type="module">
+        // Firebaseの読み込み
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, onValue, set, update, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// 相手の位置と玉の状態を受信して画面に反映
-onValue(dbRef, (snapshot) => {
-    const data = snapshot.val();
-    opponent.x = data.otherRole.x;
-    puck.x = data.puck.x; // 玉の位置はホストが管理
-    puck.y = data.puck.y;
-});
+        // あなたのFirebase設定を適用
+        const firebaseConfig = {
+            apiKey: "AIzaSyAWddxiv4O3gJW2Fyf2gGEwWs5dCiWuu7Y",
+            authDomain: "airhockey-1e251.firebaseapp.com",
+            projectId: "airhockey-1e251",
+            storageBucket: "airhockey-1e251.firebasestorage.app",
+            messagingSenderId: "15014810791",
+            appId: "1:15014810791:web:7dc84e7143d495cf97b782",
+            measurementId: "G-NPJ05P74Q0"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const gameId = "room1"; // 同時に遊ぶための部屋ID
+        const gameRef = ref(db, `games/${gameId}`);
+
+        // ゲーム定数
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const paddleRadius = 30, puckRadius = 15, goalWidth = 150;
+        const friction = 0.995, wallBounce = 0.7;
+
+        // ゲーム状態
+        let myRole = null; // "p1" (下/青) か "p2" (上/赤)
+        let gameState = {
+            p1: { x: 200, y: 550 },
+            p2: { x: 200, y: 50 },
+            puck: { x: 200, y: 300, vx: 0, vy: 2 },
+            score: { p1: 0, p2:
