@@ -4,15 +4,15 @@
     <meta charset="UTF-8">
     <title>Air Hockey Pro</title>
     <style>
-        body { background: #222; text-align: center; color: white; font-family: 'Arial', sans-serif; overflow: hidden; }
-        canvas { border: 5px solid #555; background: #001a33; display: block; margin: 10px auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); cursor: none; }
-        .info { font-size: 24px; margin-bottom: 10px; }
-        .msg { font-size: 18px; color: #aaa; }
+        body { background: #222; text-align: center; color: white; font-family: 'Arial', sans-serif; margin: 0; overflow: hidden; }
+        canvas { border: 5px solid #555; background: #001a33; display: block; margin: 20px auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); cursor: crosshair; }
+        .info { font-size: 24px; margin-top: 20px; }
+        .msg { font-size: 18px; color: #00ccff; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="info">PLAYER <span id="p-score">0</span> - <span id="c-score">0</span> CPU</div>
-    <div id="status" class="msg">クリックしてスタート (7点先取)</div>
+    <div id="status" class="msg">【ここか画面をクリックしてスタート！】</div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script>
@@ -22,57 +22,140 @@
         const cScoreDisp = document.getElementById("c-score");
         const statusDisp = document.getElementById("status");
 
-        // ゲーム状態
         let playerScore = 0;
         let cpuScore = 0;
         let gameRunning = false;
         let gameOver = false;
 
-        // 設定
         const paddleRadius = 30;
         const puckRadius = 15;
-        const friction = 0.985; // 摩擦（少しずつ減速させる）
+        const friction = 0.985;
 
-        let player = { x: 200, y: 550, lastX: 200, lastY: 550, vx: 0, vy: 0 };
+        // 初期位置を明示的に設定（これで消えるのを防ぎます）
+        let player = { x: 200, y: 500, vx: 0, vy: 0 };
         let cpu = { x: 200, y: 50, vx: 0 };
         let puck = { x: 200, y: 300, vx: 0, vy: 0 };
 
-        // マウス移動（パドルの速度計算含む）
+        // どこをクリックしてもスタートするようにイベントをbodyに追加
+        document.body.addEventListener("mousedown", startGame);
+
+        function startGame() {
+            if (gameOver) {
+                location.reload();
+            } else if (!gameRunning) {
+                gameRunning = true;
+                statusDisp.innerText = "試合中！マウスでパドルを動かして！";
+                puck.vy = 3; // 玉を動かす
+            }
+        }
+
         canvas.addEventListener("mousemove", (e) => {
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            // 前のフレームとの差分からパドルの速度(vx, vy)を計算
             player.vx = mouseX - player.x;
             player.vy = mouseY - player.y;
-
             player.x = mouseX;
-            // 自陣制限
             player.y = Math.max(canvas.height / 2 + paddleRadius, Math.min(canvas.height - paddleRadius, mouseY));
         });
 
-        // クリックで開始
-        canvas.addEventListener("mousedown", () => {
-            if (gameOver) {
-                location.reload(); // 試合終了後はリロード
-            } else if (!gameRunning) {
-                gameRunning = true;
-                statusDisp.innerText = "試合中！";
-                resetPuck(true);
-            }
-        });
+        function update() {
+            if (gameRunning && !gameOver) {
+                puck.vx *= friction;
+                puck.vy *= friction;
+                puck.x += puck.vx;
+                puck.y += puck.vy;
 
-        function resetPuck(toPlayer) {
-            puck.x = canvas.width / 2;
-            puck.y = canvas.height / 2;
-            // 最初は止めておく（移動開始時のみ速度を与える）
-            puck.vx = 0;
-            puck.vy = toPlayer ? 2 : -2; 
+                if (puck.x < puckRadius || puck.x > canvas.width - puckRadius) {
+                    puck.vx *= -1;
+                    puck.x = puck.x < puckRadius ? puckRadius : canvas.width - puckRadius;
+                }
+
+                if (puck.y < 0) {
+                    playerScore++;
+                    if(!checkWin()) resetPuck(false);
+                } else if (puck.y > canvas.height) {
+                    cpuScore++;
+                    if(!checkWin()) resetPuck(true);
+                }
+
+                pScoreDisp.innerText = playerScore;
+                cScoreDisp.innerText = cpuScore;
+                cpu.x += (puck.x - cpu.x) * 0.1;
+
+                handleCollision(player);
+                handleCollision(cpu);
+            }
+            draw();
+            requestAnimationFrame(update);
         }
 
-        function update() {
-            if (!gameRunning || gameOver) return;
+        function handleCollision(p) {
+            let dx = puck.x - p.x;
+            let dy = puck.y - p.y;
+            let distance = Math.hypot(dx, dy);
 
-            // パックに摩擦を適用（速すぎ防止）
-            puck.vx *= friction;
+            if (distance < paddleRadius + puckRadius) {
+                let angle = Math.atan2(dy, dx);
+                let speed = Math.hypot(p.vx || 0, p.vy || 0) * 0.6 + 5;
+                if (speed > 14) speed = 14;
+
+                puck.vx = Math.cos(angle) * speed;
+                puck.vy = Math.sin(angle) * speed;
+                puck.x = p.x + (paddleRadius + puckRadius) * Math.cos(angle);
+                puck.y = p.y + (paddleRadius + puckRadius) * Math.sin(angle);
+            }
+        }
+
+        function resetPuck(toPlayer) {
+            puck.x = 200;
+            puck.y = 300;
+            puck.vx = 0;
+            puck.vy = toPlayer ? 3 : -3;
+        }
+
+        function checkWin() {
+            if (playerScore >= 7 || cpuScore >= 7) {
+                statusDisp.innerText = (playerScore >= 7 ? "あなたの勝ち！" : "CPUの勝ち！") + " クリックでリトライ";
+                gameOver = true;
+                return true;
+            }
+            return false;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // センターラインとサークル
+            ctx.strokeStyle = "rgba(0, 204, 255, 0.3)";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(canvas.width/2, canvas.height/2, 60, 0, Math.PI*2);
+            ctx.stroke();
+
+            // オブジェクトの描画
+            drawCircle(cpu.x, cpu.y, paddleRadius, "#ff3300"); // CPU
+            drawCircle(player.x, player.y, paddleRadius, "#0077ff"); // Player
+            drawCircle(puck.x, puck.y, puckRadius, "#ffffff"); // Puck
+        }
+
+        function drawCircle(x, y, r, color) {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = color;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.closePath();
+            ctx.shadowBlur = 0;
+        }
+
+        update();
+    </script>
+</body>
+</html>
