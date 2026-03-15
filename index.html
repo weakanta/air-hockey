@@ -195,4 +195,18 @@
             ctx.strokeStyle = "rgba(255,255,255,0.2)";
             ctx.lineWidth = 2;
             ctx.beginPath(); ctx.moveTo(0,375); ctx.lineTo(450,375); ctx.stroke(); // センター
-            ctx.strokeRect(150, -10, 150, 20); ctx.strokeRect(150, 740, 15
+            ctx.strokeRect(150, -10, 150, 20); ctx.strokeRect(150, 740, 150, 20); // ゴール枠
+
+            drawCircle(gameState.p1.x, gameState.p1.y, paddleRadius, "#0077ff");
+            drawCircle(gameState.p2.x, gameState.p2.y, paddleRadius, "#ff3300");
+            drawCircle(gameState.puck.x, gameState.puck.y, puckRadius, "#fff");
+        }
+
+        function drawCircle(x, y, r, color) {
+            ctx.fillStyle = color; ctx.shadowBlur = 15; ctx.shadowColor = color;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    </script>
+</body>
+</html>
