@@ -2,17 +2,16 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Air Hockey Online</title>
+    <title>Air Hockey Online Final</title>
     <style>
         body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
-        #lobby { background: #2a2a2a; padding: 30px; border-radius: 15px; width: 300px; margin: 50px auto; border: 2px solid #0077ff; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #lobby { background: #2a2a2a; padding: 30px; border-radius: 15px; width: 300px; margin: 50px auto; border: 2px solid #0077ff; }
         input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 5px; border: none; font-size: 16px; }
         #joinBtn { width: 95%; padding: 15px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 18px; font-weight: bold; }
-        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: none; margin: 10px auto; cursor: none; }
-        .hud { display: none; justify-content: space-around; padding: 10px; background: #222; }
+        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: none; margin: 0 auto; cursor: none; }
+        .hud { display: none; justify-content: space-around; padding: 10px; background: #222; border-bottom: 2px solid #444; }
         .score { font-size: 32px; font-weight: bold; }
-        /* エラー表示を目立たせる */
-        #msg { margin: 15px; font-size: 16px; font-weight: bold; padding: 10px; border-radius: 5px; }
+        #msg { margin: 5px; font-size: 14px; color: #00ffcc; background: rgba(0,0,0,0.5); padding: 5px; }
     </style>
 </head>
 <body>
@@ -29,8 +28,7 @@
         <div style="color:#0077ff"><div id="n1">BLUE</div><div id="s1" class="score">0</div></div>
     </div>
     
-    <div id="msg" style="color:#00ffcc; background: #111;">待機中...</div>
-    
+    <div id="msg">接続を待っています...</div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script type="module">
@@ -55,26 +53,21 @@
         const paddleRadius = 30, puckRadius = 15;
         
         let myRole = null, myName = "", gameId = "";
+        
+        // 座標がundefinedにならないように初期値をセット
         let gameState = {
-            p1: { x: 200, y: 550, vx: 0, vy: 0, name: "" },
-            p2: { x: 200, y: 50, vx: 0, vy: 0, name: "" },
+            p1: { x: 200, y: 550, vx: 0, vy: 0, name: "P1" },
+            p2: { x: 200, y: 50, vx: 0, vy: 0, name: "P2" },
             puck: { x: 200, y: 300, vx: 0, vy: 2 },
             score: { p1: 0, p2: 0 }
         };
 
-        const msgBox = document.getElementById("msg");
-
         document.getElementById("joinBtn").onclick = () => {
             myName = document.getElementById("nameInput").value || "Player";
             gameId = "room_" + (document.getElementById("roomInput").value || "123");
-            
             document.getElementById("lobby").style.display = "none";
             document.getElementById("hud").style.display = "flex";
             canvas.style.display = "block";
-            
-            msgBox.style.color = "#00ffcc";
-            msgBox.innerText = "手順1: データベースに接続中...";
-
             startConnection();
         };
 
@@ -82,97 +75,25 @@
             const gameRef = ref(db, `games/${gameId}`);
             const playersRef = ref(db, `games/${gameId}/players`);
 
-            // ★ここでエラーが起きていないか監視します
             onValue(playersRef, (s) => {
-                try {
-                    if (myRole) return;
-                    const pData = s.val() || {};
-                    if (!pData.p1) myRole = "p1";
-                    else if (!pData.p2) myRole = "p2";
-                    else { alert("満員です"); location.reload(); return; }
+                if (myRole) return;
+                const pData = s.val() || {};
+                if (!pData.p1) myRole = "p1";
+                else if (!pData.p2) myRole = "p2";
+                else { alert("満員です"); location.reload(); return; }
 
-                    msgBox.innerText = `手順2: 成功！あなたは ${myRole==='p1'?'BLUE(下)':'RED(上)'} です`;
-                    
-                    update(ref(db, `games/${gameId}/${myRole}`), { name: myName })
-                        .catch(err => { msgBox.style.color = "red"; msgBox.innerText = "書込エラー: " + err.message; });
+                document.getElementById("msg").innerText = `あなたは ${myRole==='p1'?'BLUE(下)':'RED(上)'} です`;
+                
+                // ★重要：名前だけでなく、初期座標も一緒にDBに送る
+                const startPos = (myRole === 'p1') ? {x: 200, y: 550} : {x: 200, y: 50};
+                update(ref(db, `games/${gameId}/${myRole}`), { 
+                    name: myName, 
+                    x: startPos.x, 
+                    y: startPos.y, 
+                    vx: 0, 
+                    vy: 0 
+                });
 
-                    const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
-                    set(presenceRef, true);
-                    onDisconnect(presenceRef).remove();
-                    
-                    updateLoop(); // ゲーム開始
-                    
-                } catch (e) {
-                    msgBox.style.color = "red";
-                    msgBox.innerText = "処理エラー: " + e.message;
-                }
-            }, (error) => {
-                // ★もしルール設定などで読み込み拒否されたらここに出ます
-                msgBox.style.color = "red";
-                msgBox.style.background = "#500";
-                msgBox.innerText = "🛑 読込エラー: " + error.message + " (Firebaseのルール設定を確認してください)";
-            }, { onlyOnce: true });
-
-            onValue(gameRef, (snap) => {
-                const data = snap.val();
-                if (!data) return;
-                if (data.p1) { gameState.p1 = data.p1; document.getElementById("n1").innerText = data.p1.name; }
-                if (data.p2) { gameState.p2 = data.p2; document.getElementById("n2").innerText = data.p2.name; }
-                if (data.puck && myRole !== "p1") gameState.puck = data.puck;
-                if (data.score) {
-                    gameState.score = data.score;
-                    document.getElementById("s1").innerText = data.score.p1;
-                    document.getElementById("s2").innerText = data.score.p2;
-                }
-            });
-        }
-
-        canvas.addEventListener("mousemove", (e) => {
-            if (!myRole) return;
-            const rect = canvas.getBoundingClientRect();
-            const mx = e.clientX - rect.left;
-            const my = e.clientY - rect.top;
-            let curY = (myRole === "p1") ? Math.max(330, Math.min(570, my)) : Math.max(30, Math.min(270, my));
-            const vx = mx - gameState[myRole].x, vy = curY - gameState[myRole].y;
-            update(ref(db, `games/${gameId}/${myRole}`), { x: mx, y: curY, vx, vy, name: myName });
-        });
-
-        function updateLoop() {
-            if (myRole === "p1") {
-                let p = gameState.puck;
-                p.x += p.vx; p.y += p.vy;
-                p.vx *= 0.99; p.vy *= 0.99;
-
-                if (p.x < 15 || p.x > 385) { p.vx *= -0.7; p.x = p.x < 15 ? 15 : 385; }
-                if (p.y < 0 || p.y > 600) {
-                    if (p.x > 125 && p.x < 275) {
-                        if (p.y < 0) gameState.score.p1++; else gameState.score.p2++;
-                        p.x = 200; p.y = 300; p.vx = 0; p.vy = 2;
-                    } else { p.vy *= -0.7; p.y = p.y < 0 ? 0 : 600; }
-                }
-                checkCollision(gameState.p1); checkCollision(gameState.p2);
-                update(ref(db, `games/${gameId}`), { puck: p, score: gameState.score });
-            }
-            draw();
-            requestAnimationFrame(updateLoop);
-        }
-
-        function checkCollision(pad) {
-            let p = gameState.puck;
-            let dist = Math.hypot(p.x - pad.x, p.y - pad.y);
-            if (dist < 45) {
-                let angle = Math.atan2(p.y - pad.y, p.x - pad.x);
-                p.vx = Math.cos(angle) * 7; p.vy = Math.sin(angle) * 7;
-            }
-        }
-
-        function draw() {
-            ctx.clearRect(0, 0, 400, 600);
-            ctx.strokeStyle = "#444"; ctx.beginPath(); ctx.moveTo(0,300); ctx.lineTo(400,300); ctx.stroke();
-            ctx.fillStyle = "#0077ff"; ctx.beginPath(); ctx.arc(gameState.p1.x, gameState.p1.y, 30, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "#ff3300"; ctx.beginPath(); ctx.arc(gameState.p2.x, gameState.p2.y, 30, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(gameState.puck.x, gameState.puck.y, 15, 0, Math.PI*2); ctx.fill();
-        }
-    </script>
-</body>
-</html>
+                const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
+                set(presenceRef, true);
+                onDisconnect(presenceRef).
