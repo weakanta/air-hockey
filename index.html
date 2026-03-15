@@ -2,26 +2,40 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Online Air Hockey</title>
+    <title>Air Hockey - Private Room</title>
     <style>
         body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
         canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: block; margin: 10px auto; cursor: none; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
         .info { font-size: 24px; margin-top: 10px; font-weight: bold; }
         .status { font-size: 16px; color: #00ffcc; height: 20px; margin-bottom: 5px; font-weight: bold; }
-        .controls { color: #888; font-size: 12px; }
+        /* ロビー（入力画面）のスタイル */
+        #lobby {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 10;
+        }
+        input { padding: 10px; font-size: 20px; border-radius: 5px; border: none; margin: 10px; text-align: center; }
+        button { padding: 10px 20px; font-size: 20px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0055cc; }
     </style>
 </head>
 <body>
+
+    <div id="lobby">
+        <h1>AIR HOCKEY ONLINE</h1>
+        <input type="text" id="roomInput" placeholder="部屋番号を入力 (例: 123)" maxlength="10">
+        <button id="joinBtn">部屋に入る</button>
+        <p style="color: #888;">同じ番号を入れた人と対戦できます</p>
+    </div>
+
     <div class="info"><span style="color:#ff3300">RED</span> <span id="s2">0</span> - <span id="s1">0</span> <span style="color:#0077ff">BLUE</span></div>
-    <div id="status" class="status">接続中...</div>
-    <div class="controls">1人目：下(青) / 2人目：上(赤)</div>
+    <div id="status" class="status">部屋を選んでください</div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, onValue, set, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // あなたのFirebase設定を反映済み
         const firebaseConfig = {
             apiKey: "AIzaSyAWddxiv4O3gJW2Fyf2gGEwWs5dCiWuu7Y",
             authDomain: "airhockey-1e251.firebaseapp.com",
@@ -34,15 +48,14 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
-        const gameId = "main_room"; 
-        const gameRef = ref(db, `games/${gameId}`);
 
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
-        const paddleRadius = 30, puckRadius = 15, goalWidth = 150;
+        const paddleRadius = 30, puckRadius = 15;
         const friction = 0.992, wallBounce = 0.7;
 
         let myRole = null; 
+        let gameId = "";
         let gameState = {
             p1: { x: 200, y: 550, vx: 0, vy: 0 },
             p2: { x: 200, y: 50, vx: 0, vy: 0 },
@@ -50,24 +63,136 @@
             score: { p1: 0, p2: 0 }
         };
 
-        // --- オンライン参加管理 ---
-        const playersRef = ref(db, `games/${gameId}/players`);
-        onValue(ref(db, ".info/connected"), (snap) => {
-            if (snap.val() === true) {
-                onValue(playersRef, (s) => {
-                    if (myRole) return;
-                    const pData = s.val() || {};
-                    if (!pData.p1) myRole = "p1";
-                    else if (!pData.p2) myRole = "p2";
-                    else { document.getElementById("status").innerText = "満員です"; return; }
+        // --- ロビー処理 ---
+        document.getElementById("joinBtn").onclick = () => {
+            const input = document.getElementById("roomInput").value.trim();
+            if (!input) return alert("部屋番号を入れてね！");
+            
+            gameId = "room_" + input;
+            document.getElementById("lobby").style.display = "none";
+            startConnection();
+        };
 
-                    document.getElementById("status").innerText = `あなたは ${myRole === "p1" ? "BLUE (下)" : "RED (上)"} です`;
-                    const myPresenceRef = ref(db, `games/${gameId}/players/${myRole}`);
-                    set(myPresenceRef, true);
-                    onDisconnect(myPresenceRef).remove();
-                }, { onlyOnce: true });
-            }
+        function startConnection() {
+            const gameRef = ref(db, `games/${gameId}`);
+            const playersRef = ref(db, `games/${gameId}/players`);
+
+            // 参加枠の確認
+            onValue(ref(db, ".info/connected"), (snap) => {
+                if (snap.val() === true) {
+                    onValue(playersRef, (s) => {
+                        if (myRole) return;
+                        const pData = s.val() || {};
+                        if (!pData.p1) myRole = "p1";
+                        else if (!pData.p2) myRole = "p2";
+                        else { 
+                            alert("この部屋は満員です！別の番号にしてください。");
+                            location.reload(); 
+                            return; 
+                        }
+
+                        document.getElementById("status").innerText = `部屋: ${gameId.replace("room_","")} | あなた: ${myRole === "p1" ? "BLUE(下)" : "RED(上)"}`;
+                        const myPresenceRef = ref(db, `games/${gameId}/players/${myRole}`);
+                        set(myPresenceRef, true);
+                        onDisconnect(myPresenceRef).remove();
+                    }, { onlyOnce: true });
+                }
+            });
+
+            // 同期
+            onValue(gameRef, (snap) => {
+                const data = snap.val();
+                if (!data) return;
+                if (data.p1 && myRole !== "p1") gameState.p1 = data.p1;
+                if (data.p2 && myRole !== "p2") gameState.p2 = data.p2;
+                if (data.puck && myRole !== "p1") gameState.puck = data.puck; 
+                if (data.score) {
+                    gameState.score = data.score;
+                    document.getElementById("s1").innerText = data.score.p1;
+                    document.getElementById("s2").innerText = data.score.p2;
+                }
+            });
+
+            // ループ開始
+            updateGame();
+        }
+
+        // --- ゲームロジック ---
+        canvas.addEventListener("mousemove", (e) => {
+            if (!myRole) return;
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+
+            let cur = { x: mx, y: my };
+            if (myRole === "p1") cur.y = Math.max(300 + paddleRadius, Math.min(600 - paddleRadius, my));
+            else cur.y = Math.max(paddleRadius, Math.min(300 - paddleRadius, my));
+
+            const vx = cur.x - gameState[myRole].x;
+            const vy = cur.y - gameState[myRole].y;
+            gameState[myRole] = { x: cur.x, y: cur.y, vx, vy };
+
+            update(ref(db, `games/${gameId}/${myRole}`), gameState[myRole]);
         });
 
-        // データのリアルタイム同期
-        onValue(gameRef, (snap
+        function updateGame() {
+            if (myRole === "p1") {
+                let p = gameState.puck;
+                p.vx *= friction; p.vy *= friction;
+                p.x += p.vx; p.y += p.vy;
+
+                if (p.x < puckRadius || p.x > 400 - puckRadius) {
+                    p.vx *= -wallBounce;
+                    p.x = p.x < puckRadius ? puckRadius : 400 - puckRadius;
+                }
+
+                if (p.y < 0) {
+                    if (p.x > 125 && p.x < 275) { gameState.score.p1++; resetPuck(); }
+                    else { p.y = 0; p.vy *= -wallBounce; }
+                } else if (p.y > 600) {
+                    if (p.x > 125 && p.x < 275) { gameState.score.p2++; resetPuck(); }
+                    else { p.y = 600; p.vy *= -wallBounce; }
+                }
+
+                checkCollision(gameState.p1);
+                checkCollision(gameState.p2);
+                update(ref(db, `games/${gameId}`), { puck: p, score: gameState.score });
+            }
+            draw();
+            requestAnimationFrame(updateGame);
+        }
+
+        function checkCollision(pad) {
+            let p = gameState.puck;
+            let dx = p.x - pad.x, dy = p.y - pad.y;
+            let dist = Math.hypot(dx, dy);
+            if (dist < paddleRadius + puckRadius) {
+                let angle = Math.atan2(dy, dx);
+                let speed = Math.min(10, Math.hypot(p.vx - (pad.vx || 0), p.vy - (pad.vy || 0)) * 0.7 + 3);
+                p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
+                p.x = pad.x + (paddleRadius + puckRadius) * Math.cos(angle);
+                p.y = pad.y + (paddleRadius + puckRadius) * Math.sin(angle);
+            }
+        }
+
+        function resetPuck() {
+            gameState.puck = { x: 200, y: 300, vx: 0, vy: 2 };
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, 400, 600);
+            ctx.strokeStyle = "rgba(255,255,255,0.1)";
+            ctx.beginPath(); ctx.moveTo(0, 300); ctx.lineTo(400, 300); ctx.stroke();
+            ctx.fillStyle = "rgba(255,255,255,0.2)";
+            ctx.fillRect(125, 0, 150, 5); ctx.fillRect(125, 595, 150, 5);
+            drawCircle(gameState.p1.x, gameState.p1.y, paddleRadius, "#0077ff");
+            drawCircle(gameState.p2.x, gameState.p2.y, paddleRadius, "#ff3300");
+            drawCircle(gameState.puck.x, gameState.puck.y, puckRadius, "#ffffff");
+        }
+
+        function drawCircle(x, y, r, color) {
+            ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+        }
+    </script>
+</body>
+</html>
