@@ -2,46 +2,35 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Air Hockey Online - Final</title>
+    <title>Air Hockey - Fix</title>
     <style>
-        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
-        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: block; margin: 10px auto; cursor: none; }
-        .hud { display: flex; justify-content: space-around; padding: 10px; background: #222; border-bottom: 2px solid #444; }
-        .player-box { width: 140px; }
-        .score { font-size: 32px; font-weight: bold; line-height: 1; }
-        .name { font-size: 14px; margin-bottom: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-        #lobby { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10,10,15,0.98); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
-        .card { background: #2a2a2a; padding: 30px; border-radius: 15px; width: 280px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        input { width: 90%; padding: 12px; margin: 10px 0; border-radius: 5px; border: 1px solid #444; background: #111; color: white; text-align: center; font-size: 16px; }
-        button { width: 100%; padding: 12px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 18px; }
-        button:hover { background: #0055cc; }
-        #msg { color: #00ffcc; font-size: 14px; margin: 10px; height: 20px; }
+        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; }
+        #lobby { background: #2a2a2a; padding: 20px; border-radius: 10px; width: 300px; margin: 50px auto; border: 2px solid #0077ff; }
+        input { width: 80%; padding: 10px; margin: 10px 0; border-radius: 5px; border: none; }
+        /* ボタンを大きく、分かりやすくしました */
+        #joinBtn { width: 90%; padding: 15px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 18px; font-weight: bold; }
+        #joinBtn:active { background: #0055cc; }
+        canvas { border: 2px solid #444; background: #000; display: none; margin: 10px auto; }
+        #msg { color: #00ffcc; margin: 10px; }
     </style>
 </head>
 <body>
 
     <div id="lobby">
-        <div class="card">
-            <h2 style="margin:0 0 20px 0;">AIR HOCKEY</h2>
-            <input type="text" id="nameInput" placeholder="あなたの名前" maxlength="8">
-            <input type="text" id="roomInput" placeholder="部屋番号 (例: 123)" maxlength="10">
-            <button id="joinBtn">ゲーム開始！</button>
-        </div>
+        <h2>AIR HOCKEY</h2>
+        <input type="text" id="nameInput" placeholder="名前を入力" value="Player">
+        <input type="text" id="roomInput" placeholder="部屋番号" value="123">
+        <button type="button" id="joinBtn">ゲーム開始！</button>
     </div>
 
-    <div class="hud">
-        <div class="player-box"><div id="n2" class="name" style="color:#ff3300">WAITING...</div><div id="s2" class="score" style="color:#ff3300">0</div></div>
-        <div style="font-size: 20px; color: #555; align-self:center;">VS</div>
-        <div class="player-box"><div id="n1" class="name" style="color:#0077ff">WAITING...</div><div id="s1" class="score" style="color:#0077ff">0</div></div>
-    </div>
-    <div id="msg">接続待ち...</div>
+    <div id="msg"></div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script type="module">
+        // Firebaseの読み込み
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, onValue, set, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // Firebase設定（画像で通信成功が確認できた設定です）
         const firebaseConfig = {
             apiKey: "AIzaSyAWddxiv4O3gJW2Fyf2gGEwWs5dCiWuu7Y",
             authDomain: "airhockey-1e251.firebaseapp.com",
@@ -55,42 +44,36 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        const paddleRadius = 30, puckRadius = 15;
-        const friction = 0.992, wallBounce = 0.7;
-
-        let myRole = null, myName = "", gameId = "";
-        let gameState = {
-            p1: { x: 200, y: 550, vx: 0, vy: 0, name: "Player 1" },
-            p2: { x: 200, y: 50, vx: 0, vy: 0, name: "Player 2" },
-            puck: { x: 200, y: 300, vx: 0, vy: 2 },
-            score: { p1: 0, p2: 0 }
-        };
-
-        // ボタンクリックで開始
-        document.getElementById("joinBtn").onclick = () => {
-            myName = document.getElementById("nameInput").value.trim() || "Guest";
-            const room = document.getElementById("roomInput").value.trim();
-            if (!room) return alert("部屋番号を入れてね！");
+        // ボタンの動作を定義
+        const joinBtn = document.getElementById("joinBtn");
+        joinBtn.addEventListener("click", () => {
+            const name = document.getElementById("nameInput").value;
+            const room = document.getElementById("roomInput").value;
             
-            gameId = "room_" + room;
+            if(!room) {
+                alert("部屋番号を入力してください");
+                return;
+            }
+
+            console.log("Button clicked!"); // ブラウザのF12で見れるログ
+            document.getElementById("msg").innerText = "接続中...";
             document.getElementById("lobby").style.display = "none";
-            startConnection();
-        };
+            document.getElementById("gameCanvas").style.display = "block";
+            
+            // 通信開始
+            startHearts(room, name);
+        });
 
-        function startConnection() {
+        function startHearts(room, name) {
+            const gameId = "room_" + room;
             const gameRef = ref(db, `games/${gameId}`);
-            const playersRef = ref(db, `games/${gameId}/players`);
-
-            // 役割決定
-            onValue(playersRef, (s) => {
-                if (myRole) return;
-                const pData = s.val() || {};
-                if (!pData.p1) myRole = "p1";
-                else if (!pData.p2) myRole = "p2";
-                else { alert("この部屋は満員です"); location.reload(); return; }
-
-                document.getElementById("msg").innerText = `部屋: ${gameId.split('_')[1]} | あなた: ${myRole==='p1'?'BLUE(下)':'RED(上)'}`;
-                
-                // 初期データの
+            
+            // 接続テスト（画像 で成功していた処理）
+            set(ref(db, `games/${gameId}/last_access`), Date.now());
+            
+            // ここにゲームの同期プログラムが入ります
+            // (まずはロビーが消えてキャンバスが出るかを確認しましょう)
+        }
+    </script>
+</body>
+</html>
