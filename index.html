@@ -96,4 +96,100 @@
 
                 const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
                 set(presenceRef, true);
-                onDisconnect(presenceRef).
+                onDisconnect(presenceRef).remove();
+                
+                requestAnimationFrame(updateLoop);
+            }, { onlyOnce: true });
+
+            onValue(gameRef, (snap) => {
+                const data = snap.val();
+                if (!data) return;
+                // 相手やパックのデータを同期
+                if (data.p1) { Object.assign(gameState.p1, data.p1); document.getElementById("n1").innerText = data.p1.name; }
+                if (data.p2) { Object.assign(gameState.p2, data.p2); document.getElementById("n2").innerText = data.p2.name; }
+                if (data.puck && myRole !== "p1") Object.assign(gameState.puck, data.puck);
+                if (data.score) {
+                    gameState.score = data.score;
+                    document.getElementById("s1").innerText = data.score.p1;
+                    document.getElementById("s2").innerText = data.score.p2;
+                }
+            });
+        }
+
+        canvas.addEventListener("mousemove", (e) => {
+            if (!myRole) return;
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            
+            // 移動範囲制限
+            let curY = (myRole === "p1") ? Math.max(330, Math.min(570, my)) : Math.max(30, Math.min(270, my));
+            const vx = mx - gameState[myRole].x;
+            const vy = curY - gameState[myRole].y;
+
+            // ローカルの値を更新
+            gameState[myRole].x = mx;
+            gameState[myRole].y = curY;
+            gameState[myRole].vx = vx;
+            gameState[myRole].vy = vy;
+
+            // DBに送信
+            update(ref(db, `games/${gameId}/${myRole}`), { x: mx, y: curY, vx: vx, vy: vy });
+        });
+
+        function updateLoop() {
+            if (myRole === "p1") {
+                let p = gameState.puck;
+                p.x += p.vx; p.y += p.vy;
+                p.vx *= 0.99; p.vy *= 0.99;
+
+                if (p.x < 15 || p.x > 385) { p.vx *= -0.7; p.x = p.x < 15 ? 15 : 385; }
+                if (p.y < 0 || p.y > 600) {
+                    if (p.x > 125 && p.x < 275) {
+                        if (p.y < 0) gameState.score.p1++; else gameState.score.p2++;
+                        p.x = 200; p.y = 300; p.vx = 0; p.vy = 2;
+                    } else { p.vy *= -0.7; p.y = p.y < 0 ? 0 : 600; }
+                }
+                checkCollision(gameState.p1); checkCollision(gameState.p2);
+                update(ref(db, `games/${gameId}`), { puck: p, score: gameState.score });
+            }
+            draw();
+            requestAnimationFrame(updateLoop);
+        }
+
+        function checkCollision(pad) {
+            let p = gameState.puck;
+            let dist = Math.hypot(p.x - pad.x, p.y - pad.y);
+            if (dist < 45) {
+                let angle = Math.atan2(p.y - pad.y, p.x - pad.x);
+                let speed = Math.hypot(p.vx - (pad.vx||0), p.vy - (pad.vy||0)) * 0.5 + 5;
+                p.vx = Math.cos(angle) * speed;
+                p.vy = Math.sin(angle) * speed;
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, 400, 600);
+            
+            // センターラインとゴール
+            ctx.strokeStyle = "rgba(255,255,255,0.2)";
+            ctx.beginPath(); ctx.moveTo(0,300); ctx.lineTo(400,300); ctx.stroke();
+            ctx.fillStyle = "rgba(255,255,255,0.1)";
+            ctx.fillRect(125, 0, 150, 5); ctx.fillRect(125, 595, 150, 5);
+
+            // パドルとパックの描画
+            drawCircle(gameState.p1.x, gameState.p1.y, paddleRadius, "#0077ff");
+            drawCircle(gameState.p2.x, gameState.p2.y, paddleRadius, "#ff3300");
+            drawCircle(gameState.puck.x, gameState.puck.y, puckRadius, "#fff");
+        }
+
+        function drawCircle(x, y, r, color) {
+            if (isNaN(x) || isNaN(y)) return; // 座標が変なら描画しない
+            ctx.fillStyle = color;
+            ctx.shadowBlur = 10; ctx.shadowColor = color;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    </script>
+</body>
+</html>
