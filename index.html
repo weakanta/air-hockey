@@ -2,34 +2,56 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Air Hockey - Private Room</title>
+    <title>Air Hockey Online - Pro</title>
     <style>
-        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
-        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: block; margin: 10px auto; cursor: none; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        .info { font-size: 24px; margin-top: 10px; font-weight: bold; }
-        .status { font-size: 16px; color: #00ffcc; height: 20px; margin-bottom: 5px; font-weight: bold; }
-        /* ロビー（入力画面）のスタイル */
+        body { background: #1a1a1a; text-align: center; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; overflow: hidden; }
+        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: block; margin: 10px auto; cursor: none; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
+        
+        /* スコア・名前表示 */
+        .hud { display: flex; justify-content: space-around; align-items: center; padding: 10px; background: #222; border-bottom: 2px solid #444; }
+        .player-box { width: 150px; }
+        .name { font-size: 14px; color: #aaa; margin-bottom: 2px; }
+        .score { font-size: 32px; font-weight: bold; }
+        .blue { color: #0077ff; }
+        .red { color: #ff3300; }
+
+        /* ロビー画面 */
         #lobby {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
-            justify-content: center; align-items: center; z-index: 10;
+            background: rgba(10, 10, 15, 0.95); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
         }
-        input { padding: 10px; font-size: 20px; border-radius: 5px; border: none; margin: 10px; text-align: center; }
-        button { padding: 10px 20px; font-size: 20px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        button:hover { background: #0055cc; }
+        .login-card { background: #2a2a2a; padding: 30px; border-radius: 15px; box-shadow: 0 0 20px rgba(0,0,0,0.5); width: 300px; }
+        input { width: 90%; padding: 12px; margin: 10px 0; border-radius: 5px; border: 1px solid #444; background: #111; color: white; text-align: center; font-size: 16px; }
+        button { width: 100%; padding: 12px; font-size: 18px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0055cc; transform: translateY(-2px); }
+        .status-msg { margin-top: 10px; font-size: 14px; color: #00ffcc; height: 20px; }
     </style>
 </head>
 <body>
 
     <div id="lobby">
-        <h1>AIR HOCKEY ONLINE</h1>
-        <input type="text" id="roomInput" placeholder="部屋番号を入力 (例: 123)" maxlength="10">
-        <button id="joinBtn">部屋に入る</button>
-        <p style="color: #888;">同じ番号を入れた人と対戦できます</p>
+        <div class="login-card">
+            <h2 style="margin-top:0;">AIR HOCKEY</h2>
+            <input type="text" id="nameInput" placeholder="あなたの名前" maxlength="10">
+            <input type="text" id="roomInput" placeholder="部屋番号 (例: 123)" maxlength="10">
+            <button id="joinBtn">ゲーム開始！</button>
+            <div id="lobbyStatus" style="color: #ff3300; font-size: 12px; margin-top: 10px;"></div>
+        </div>
     </div>
 
-    <div class="info"><span style="color:#ff3300">RED</span> <span id="s2">0</span> - <span id="s1">0</span> <span style="color:#0077ff">BLUE</span></div>
-    <div id="status" class="status">部屋を選んでください</div>
+    <div class="hud">
+        <div class="player-box">
+            <div id="n2" class="name red">Waiting...</div>
+            <div id="s2" class="score red">0</div>
+        </div>
+        <div style="font-size: 20px; color: #555;">VS</div>
+        <div class="player-box">
+            <div id="n1" class="name blue">Waiting...</div>
+            <div id="s1" class="score blue">0</div>
+        </div>
+    </div>
+    <div id="gameMsg" style="color:#00ffcc; font-size:14px; margin:5px;">接続待ち...</div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script type="module">
@@ -40,6 +62,7 @@
             apiKey: "AIzaSyAWddxiv4O3gJW2Fyf2gGEwWs5dCiWuu7Y",
             authDomain: "airhockey-1e251.firebaseapp.com",
             projectId: "airhockey-1e251",
+            databaseURL: "https://airhockey-1e251-default-rtdb.firebaseio.com", // 追加：URLを明示
             storageBucket: "airhockey-1e251.firebasestorage.app",
             messagingSenderId: "15014810791",
             appId: "1:15014810791:web:7dc84e7143d495cf97b782",
@@ -54,21 +77,20 @@
         const paddleRadius = 30, puckRadius = 15;
         const friction = 0.992, wallBounce = 0.7;
 
-        let myRole = null; 
-        let gameId = "";
+        let myRole = null, myName = "", gameId = "";
         let gameState = {
-            p1: { x: 200, y: 550, vx: 0, vy: 0 },
-            p2: { x: 200, y: 50, vx: 0, vy: 0 },
+            p1: { x: 200, y: 550, vx: 0, vy: 0, name: "" },
+            p2: { x: 200, y: 50, vx: 0, vy: 0, name: "" },
             puck: { x: 200, y: 300, vx: 0, vy: 2 },
             score: { p1: 0, p2: 0 }
         };
 
-        // --- ロビー処理 ---
         document.getElementById("joinBtn").onclick = () => {
-            const input = document.getElementById("roomInput").value.trim();
-            if (!input) return alert("部屋番号を入れてね！");
+            myName = document.getElementById("nameInput").value.trim() || "Guest";
+            const room = document.getElementById("roomInput").value.trim();
+            if (!room) return alert("部屋番号を入力してね！");
             
-            gameId = "room_" + input;
+            gameId = "room_" + room;
             document.getElementById("lobby").style.display = "none";
             startConnection();
         };
@@ -77,7 +99,7 @@
             const gameRef = ref(db, `games/${gameId}`);
             const playersRef = ref(db, `games/${gameId}/players`);
 
-            // 参加枠の確認
+            // 1. 接続確認と役割の決定
             onValue(ref(db, ".info/connected"), (snap) => {
                 if (snap.val() === true) {
                     onValue(playersRef, (s) => {
@@ -85,27 +107,26 @@
                         const pData = s.val() || {};
                         if (!pData.p1) myRole = "p1";
                         else if (!pData.p2) myRole = "p2";
-                        else { 
-                            alert("この部屋は満員です！別の番号にしてください。");
-                            location.reload(); 
-                            return; 
-                        }
+                        else { alert("満員です！"); location.reload(); return; }
 
-                        document.getElementById("status").innerText = `部屋: ${gameId.replace("room_","")} | あなた: ${myRole === "p1" ? "BLUE(下)" : "RED(上)"}`;
-                        const myPresenceRef = ref(db, `games/${gameId}/players/${myRole}`);
-                        set(myPresenceRef, true);
-                        onDisconnect(myPresenceRef).remove();
+                        document.getElementById("gameMsg").innerText = `部屋: ${gameId.split('_')[1]} | あなた: ${myRole==='p1'?'BLUE':'RED'}`;
+                        
+                        // 自分の名前と存在を登録
+                        update(ref(db, `games/${gameId}/${myRole}`), { name: myName });
+                        const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
+                        set(presenceRef, true);
+                        onDisconnect(presenceRef).remove();
                     }, { onlyOnce: true });
                 }
             });
 
-            // 同期
+            // 2. データのリアルタイム同期
             onValue(gameRef, (snap) => {
                 const data = snap.val();
                 if (!data) return;
-                if (data.p1 && myRole !== "p1") gameState.p1 = data.p1;
-                if (data.p2 && myRole !== "p2") gameState.p2 = data.p2;
-                if (data.puck && myRole !== "p1") gameState.puck = data.puck; 
+                if (data.p1) { gameState.p1 = data.p1; document.getElementById("n1").innerText = data.p1.name || "BLUE"; }
+                if (data.p2) { gameState.p2 = data.p2; document.getElementById("n2").innerText = data.p2.name || "RED"; }
+                if (data.puck && myRole !== "p1") gameState.puck = data.puck;
                 if (data.score) {
                     gameState.score = data.score;
                     document.getElementById("s1").innerText = data.score.p1;
@@ -113,26 +134,25 @@
                 }
             });
 
-            // ループ開始
+            // ゲームループ開始
             updateGame();
         }
 
-        // --- ゲームロジック ---
         canvas.addEventListener("mousemove", (e) => {
             if (!myRole) return;
             const rect = canvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
 
-            let cur = { x: mx, y: my };
-            if (myRole === "p1") cur.y = Math.max(300 + paddleRadius, Math.min(600 - paddleRadius, my));
-            else cur.y = Math.max(paddleRadius, Math.min(300 - paddleRadius, my));
+            let curY = my;
+            if (myRole === "p1") curY = Math.max(330, Math.min(570, my));
+            else curY = Math.max(30, Math.min(270, my));
 
-            const vx = cur.x - gameState[myRole].x;
-            const vy = cur.y - gameState[myRole].y;
-            gameState[myRole] = { x: cur.x, y: cur.y, vx, vy };
-
-            update(ref(db, `games/${gameId}/${myRole}`), gameState[myRole]);
+            const vx = mx - gameState[myRole].x;
+            const vy = curY - gameState[myRole].y;
+            
+            // 自分の位置を更新して送信
+            update(ref(db, `games/${gameId}/${myRole}`), { x: mx, y: curY, vx: vx, vy: vy });
         });
 
         function updateGame() {
@@ -141,11 +161,10 @@
                 p.vx *= friction; p.vy *= friction;
                 p.x += p.vx; p.y += p.vy;
 
-                if (p.x < puckRadius || p.x > 400 - puckRadius) {
-                    p.vx *= -wallBounce;
-                    p.x = p.x < puckRadius ? puckRadius : 400 - puckRadius;
-                }
+                // 壁反射
+                if (p.x < puckRadius || p.x > 400 - puckRadius) { p.vx *= -wallBounce; p.x = p.x < puckRadius ? puckRadius : 400 - puckRadius; }
 
+                // ゴール判定
                 if (p.y < 0) {
                     if (p.x > 125 && p.x < 275) { gameState.score.p1++; resetPuck(); }
                     else { p.y = 0; p.vy *= -wallBounce; }
@@ -164,20 +183,17 @@
 
         function checkCollision(pad) {
             let p = gameState.puck;
-            let dx = p.x - pad.x, dy = p.y - pad.y;
-            let dist = Math.hypot(dx, dy);
+            let dist = Math.hypot(p.x - pad.x, p.y - pad.y);
             if (dist < paddleRadius + puckRadius) {
-                let angle = Math.atan2(dy, dx);
-                let speed = Math.min(10, Math.hypot(p.vx - (pad.vx || 0), p.vy - (pad.vy || 0)) * 0.7 + 3);
+                let angle = Math.atan2(p.y - pad.y, p.x - pad.x);
+                let speed = Math.min(10, Math.hypot(p.vx - (pad.vx||0), p.vy - (pad.vy||0)) * 0.7 + 3);
                 p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
                 p.x = pad.x + (paddleRadius + puckRadius) * Math.cos(angle);
                 p.y = pad.y + (paddleRadius + puckRadius) * Math.sin(angle);
             }
         }
 
-        function resetPuck() {
-            gameState.puck = { x: 200, y: 300, vx: 0, vy: 2 };
-        }
+        function resetPuck() { gameState.puck = { x: 200, y: 300, vx: 0, vy: 2 }; }
 
         function draw() {
             ctx.clearRect(0, 0, 400, 600);
