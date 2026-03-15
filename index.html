@@ -2,45 +2,71 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Air Hockey Pro Online</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>コトバ・パズル Online</title>
     <style>
-        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; touch-action: none; }
-        #lobby { background: #2a2a2a; padding: 20px; border-radius: 15px; width: 85%; max-width: 320px; margin: 40px auto; border: 2px solid #0077ff; }
-        input { width: 80%; padding: 12px; margin: 10px 0; border-radius: 5px; border: none; font-size: 16px; }
-        #joinBtn { width: 90%; padding: 15px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 18px; font-weight: bold; }
-        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: none; margin: 0 auto; max-width: 100%; max-height: 80vh; }
-        .hud { display: none; justify-content: space-around; padding: 10px; background: #222; }
-        .score { font-size: 32px; font-weight: bold; }
-        #msg { margin: 5px; font-size: 14px; color: #00ffcc; font-weight: bold; }
+        body { background: #eef2f3; text-align: center; font-family: 'Hiragino Sans', 'Meiryo', sans-serif; color: #333; margin: 0; }
+        #setup-screen, #game-screen { background: white; padding: 20px; border-radius: 20px; width: 90%; max-width: 450px; margin: 30px auto; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; font-size: 1.5rem; margin-top: 0; }
+        
+        /* 設定画面のスタイル */
+        .setting-item { margin: 15px 0; text-align: left; }
+        label { display: block; font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; }
+        input[type="number"], input[type="text"] { width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        #startBtn { width: 100%; padding: 15px; background: #ff4757; color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 1.1rem; font-weight: bold; margin-top: 10px; }
+        
+        /* ゲーム画面のスタイル */
+        #game-screen { display: none; }
+        #hearts { font-size: 1.5rem; color: #ff4757; margin-bottom: 15px; }
+        #word-display { display: flex; justify-content: center; gap: 8px; margin: 25px 0; }
+        .letter-slot { width: 45px; height: 55px; border-bottom: 4px solid #34495e; font-size: 2rem; font-weight: bold; display: flex; align-items: center; justify-content: center; background: #f9f9f9; }
+        
+        #keyboard { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+        .key { padding: 10px 0; background: #fff; border: 2px solid #dcdde1; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .key:active { transform: scale(0.9); }
+        .key.correct { background: #2ed573; color: white; border-color: #2ed573; pointer-events: none; }
+        .key.wrong { background: #7f8c8d; color: white; border-color: #7f8c8d; opacity: 0.3; pointer-events: none; }
+        .key.removed { display: none; } /* 設定で消された文字 */
+        
+        #status-msg { margin-top: 20px; font-weight: bold; color: #2c3e50; height: 1.2em; }
     </style>
 </head>
 <body>
 
-    <div id="lobby">
-        <h2>AIR HOCKEY</h2>
-        <input type="text" id="nameInput" placeholder="名前" value="Player">
-        <input type="text" id="roomInput" placeholder="部屋番号" value="123">
-        <button id="joinBtn">ゲーム開始！</button>
+    <div id="setup-screen">
+        <h2>コトバ・パズル 設定</h2>
+        <div class="setting-item">
+            <label>部屋番号</label>
+            <input type="text" id="roomInput" value="777">
+        </div>
+        <div class="setting-item">
+            <label>初期ハート（残機）</label>
+            <input type="number" id="heartSetting" value="5" min="1" max="10">
+        </div>
+        <div class="setting-item">
+            <label>取り除く文字数 (0〜40)</label>
+            <input type="number" id="removeSetting" value="15" min="0" max="40">
+        </div>
+        <button id="startBtn">対戦準備完了！</button>
     </div>
 
-    <div id="hud" class="hud">
-        <div style="color:#ff3300"><div id="n2">RED</div><div id="s2" class="score">0</div></div>
-        <div style="color:#0077ff"><div id="n1">BLUE</div><div id="s1" class="score">0</div></div>
+    <div id="game-screen">
+        <div id="hearts">❤️❤️❤️❤️❤️</div>
+        <div id="word-display"></div>
+        <div id="keyboard"></div>
+        <div id="status-msg">相手を待っています...</div>
     </div>
-    
-    <div id="msg">接続待機中...</div>
-    <canvas id="gameCanvas" width="450" height="750"></canvas>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
+        // ※Firebaseの設定は前回と同じものを使用してください
         const firebaseConfig = {
             apiKey: "AIzaSyAWddxiv4O3gJW2Fyf2gGEwWs5dCiWuu7Y",
             authDomain: "airhockey-1e251.firebaseapp.com",
             projectId: "airhockey-1e251",
-            databaseURL: "https://airhockey-1e251-default-rtdb.asia-southeast1.firebasedatabase.app",
+            databaseURL: "https://airhockey-1e251-default-rtdb.firebaseio.com",
             storageBucket: "airhockey-1e251.firebasestorage.app",
             messagingSenderId: "15014810791",
             appId: "1:15014810791:web:7dc84e7143d495cf97b782"
@@ -49,163 +75,109 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        const paddleRadius = 35, puckRadius = 18;
+        let myRole = null, gameId = "", currentHearts = 5;
+        let targetWord = "らいおん"; // 本来は単語リストから選ぶ
+        let guessedLetters = [];
         
-        let myRole = null, myName = "", gameId = "", isMatched = false;
-        let gameState = {
-            p1: { x: 225, y: 700, vx: 0, vy: 0, name: "" },
-            p2: { x: 225, y: 50, vx: 0, vy: 0, name: "" },
-            puck: { x: 225, y: 375, vx: 0, vy: 0 },
-            score: { p1: 0, p2: 0 }
-        };
+        const allHiragana = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん".split("");
 
-        // --- 音の生成 (Web Audio API) ---
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playSound(freq, duration) {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.frequency.value = freq; osc.type = 'square';
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-            osc.start(); osc.stop(audioCtx.currentTime + duration);
-        }
-
-        document.getElementById("joinBtn").onclick = () => {
-            audioCtx.resume(); // ブラウザの音制限解除
-            myName = document.getElementById("nameInput").value || "Player";
-            gameId = "room_" + (document.getElementById("roomInput").value || "123");
-            document.getElementById("lobby").style.display = "none";
-            document.getElementById("hud").style.display = "flex";
-            canvas.style.display = "block";
-            startConnection();
-        };
-
-        function startConnection() {
-            const gameRef = ref(db, `games/${gameId}`);
-            const playersRef = ref(db, `games/${gameId}/players`);
-
-            onValue(playersRef, (s) => {
-                const pData = s.val() || {};
-                // マッチング判定
-                isMatched = (pData.p1 && pData.p2);
-                
-                if (!myRole) {
-                    if (!pData.p1) myRole = "p1";
-                    else if (!pData.p2) myRole = "p2";
-                    else { alert("満員です"); location.reload(); return; }
-                    
-                    const startY = (myRole === 'p1') ? 700 : 50;
-                    update(ref(db, `games/${gameId}/${myRole}`), { name: myName, x: 225, y: startY });
-                    set(ref(db, `games/${gameId}/players/${myRole}`), true);
-                    onDisconnect(ref(db, `games/${gameId}/players/${myRole}`)).remove();
-                    requestAnimationFrame(updateLoop);
-                }
-
-                if (!isMatched) {
-                    document.getElementById("msg").innerText = "対戦相手を待っています...";
-                } else {
-                    document.getElementById("msg").innerText = `あなたは ${myRole==='p1'?'BLUE(下)':'RED(上)'} です`;
-                }
-            });
-
-            onValue(gameRef, (snap) => {
-                const data = snap.val(); if (!data) return;
-                if (data.p1) Object.assign(gameState.p1, data.p1);
-                if (data.p2) Object.assign(gameState.p2, data.p2);
-                if (data.puck && myRole !== "p1") Object.assign(gameState.puck, data.puck);
-                if (data.score) {
-                    if (gameState.score.p1 !== data.score.p1 || gameState.score.p2 !== data.score.p2) playSound(800, 0.5); // ゴール音
-                    gameState.score = data.score;
-                    document.getElementById("s1").innerText = data.score.p1;
-                    document.getElementById("s2").innerText = data.score.p2;
-                    document.getElementById("n1").innerText = gameState.p1.name;
-                    document.getElementById("n2").innerText = gameState.p2.name;
-                }
-            });
-        }
-
-        // --- 操作系 (マウス & タッチ) ---
-        function handleInput(x, y) {
-            if (!myRole) return;
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            const mx = (x - rect.left) * scaleX;
-            const my = (y - rect.top) * scaleY;
+        document.getElementById("startBtn").onclick = () => {
+            gameId = "wordgame_" + document.getElementById("roomInput").value;
+            currentHearts = parseInt(document.getElementById("heartSetting").value);
+            const removeCount = parseInt(document.getElementById("removeSetting").value);
             
-            let curY = (myRole === "p1") ? Math.max(380, Math.min(710, my)) : Math.max(40, Math.min(370, my));
-            gameState[myRole].vx = mx - gameState[myRole].x;
-            gameState[myRole].vy = curY - gameState[myRole].y;
-            gameState[myRole].x = mx;
-            gameState[myRole].y = curY;
+            document.getElementById("setup-screen").style.display = "none";
+            document.getElementById("game-screen").style.display = "block";
+            
+            setupGame(removeCount);
+        };
 
-            update(ref(db, `games/${gameId}/${myRole}`), { x: mx, y: curY, vx: gameState[myRole].vx, vy: gameState[myRole].vy });
-        }
+        function setupGame(removeCount) {
+            // 1. 文字候補の作成（正解に含まれる文字は残す）
+            const wordLetters = targetWord.split("");
+            let candidates = [...allHiragana];
+            let removable = candidates.filter(char => !wordLetters.includes(char));
+            
+            // ランダムに文字を削る
+            removable.sort(() => Math.random() - 0.5);
+            const removed = removable.slice(0, removeCount);
 
-        canvas.addEventListener("mousemove", (e) => handleInput(e.clientX, e.clientY));
-        canvas.addEventListener("touchmove", (e) => {
-            e.preventDefault();
-            handleInput(e.touches[0].clientX, e.touches[0].clientY);
-        }, { passive: false });
+            // 2. キーボード生成
+            const keyboardEl = document.getElementById("keyboard");
+            allHiragana.forEach(char => {
+                const btn = document.createElement("button");
+                btn.className = "key";
+                btn.innerText = char;
+                if (removed.includes(char)) btn.classList.add("removed");
+                btn.onclick = () => makeGuess(char, btn);
+                keyboardEl.appendChild(btn);
+            });
 
-        function updateLoop() {
-            if (myRole === "p1" && isMatched) {
-                let p = gameState.puck;
-                p.x += p.vx; p.y += p.vy;
-                p.vx *= 0.985; p.vy *= 0.985;
-
-                // 壁反射
-                if (p.x < 18 || p.x > 432) { 
-                    p.vx *= -0.7; p.x = p.x < 18 ? 18 : 432; 
-                    playSound(400, 0.1); 
-                }
-                // ゴール判定
-                if (p.y < 0 || p.y > 750) {
-                    if (p.x > 150 && p.x < 300) {
-                        if (p.y < 0) gameState.score.p1++; else gameState.score.p2++;
-                        p.x = 225; p.y = 375; p.vx = 0; p.vy = 0;
-                    } else { 
-                        p.vy *= -0.7; p.y = p.y < 0 ? 0 : 750; 
-                        playSound(400, 0.1);
-                    }
-                }
-                checkCollision(gameState.p1); checkCollision(gameState.p2);
-                update(ref(db, `games/${gameId}`), { puck: p, score: gameState.score });
+            // 3. 単語表示枠生成
+            const displayEl = document.getElementById("word-display");
+            for (let i = 0; i < targetWord.length; i++) {
+                const slot = document.createElement("div");
+                slot.className = "letter-slot";
+                slot.id = "slot-" + i;
+                displayEl.appendChild(slot);
             }
-            draw();
-            requestAnimationFrame(updateLoop);
+
+            updateHeartsDisplay();
+            connectFirebase();
         }
 
-        function checkCollision(pad) {
-            let p = gameState.puck;
-            let dist = Math.hypot(p.x - pad.x, p.y - pad.y);
-            if (dist < 53) {
-                playSound(600, 0.1);
-                let angle = Math.atan2(p.y - pad.y, p.x - pad.x);
-                let speed = Math.hypot(p.vx - pad.vx, p.vy - pad.vy) * 0.5 + 6;
-                p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
+        function connectFirebase() {
+            // プレイヤー登録と同期
+            const gameRef = ref(db, `games/${gameId}`);
+            onValue(gameRef, (snap) => {
+                const data = snap.val();
+                if (!data) return;
+                
+                // 相手が当てた文字などを反映（対戦要素）
+                if (data.guessed) {
+                    guessedLetters = data.guessed;
+                    renderWord();
+                }
+            });
+        }
+
+        function makeGuess(char, btn) {
+            if (targetWord.includes(char)) {
+                btn.classList.add("correct");
+                if (!guessedLetters.includes(char)) {
+                    guessedLetters.push(char);
+                    update(ref(db, `games/${gameId}`), { guessed: guessedLetters });
+                }
+                checkWin();
+            } else {
+                btn.classList.add("wrong");
+                currentHearts--;
+                updateHeartsDisplay();
+                if (currentHearts <= 0) {
+                    alert("ゲームオーバー！ 正解は：" + targetWord);
+                    location.reload();
+                }
             }
         }
 
-        function draw() {
-            ctx.clearRect(0, 0, 450, 750);
-            ctx.strokeStyle = "rgba(255,255,255,0.2)";
-            ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(0,375); ctx.lineTo(450,375); ctx.stroke(); // センター
-            ctx.strokeRect(150, -10, 150, 20); ctx.strokeRect(150, 740, 150, 20); // ゴール枠
-
-            drawCircle(gameState.p1.x, gameState.p1.y, paddleRadius, "#0077ff");
-            drawCircle(gameState.p2.x, gameState.p2.y, paddleRadius, "#ff3300");
-            drawCircle(gameState.puck.x, gameState.puck.y, puckRadius, "#fff");
+        function renderWord() {
+            targetWord.split("").forEach((char, i) => {
+                if (guessedLetters.includes(char)) {
+                    document.getElementById("slot-" + i).innerText = char;
+                }
+            });
         }
 
-        function drawCircle(x, y, r, color) {
-            ctx.fillStyle = color; ctx.shadowBlur = 15; ctx.shadowColor = color;
-            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
-            ctx.shadowBlur = 0;
+        function updateHeartsDisplay() {
+            document.getElementById("hearts").innerText = "❤️".repeat(currentHearts);
+        }
+
+        function checkWin() {
+            const isComplete = targetWord.split("").every(char => guessedLetters.includes(char));
+            if (isComplete) {
+                document.getElementById("status-msg").innerText = "おめでとう！完成です！";
+                setTimeout(() => alert("あなたの勝ちです！"), 100);
+            }
         }
     </script>
 </body>
