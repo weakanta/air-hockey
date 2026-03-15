@@ -11,6 +11,8 @@
         canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: none; margin: 10px auto; cursor: none; }
         .hud { display: none; justify-content: space-around; padding: 10px; background: #222; }
         .score { font-size: 32px; font-weight: bold; }
+        /* エラー表示を目立たせる */
+        #msg { margin: 15px; font-size: 16px; font-weight: bold; padding: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -26,7 +28,9 @@
         <div style="color:#ff3300"><div id="n2">RED</div><div id="s2" class="score">0</div></div>
         <div style="color:#0077ff"><div id="n1">BLUE</div><div id="s1" class="score">0</div></div>
     </div>
-    <div id="msg" style="color:#00ffcc; margin:10px;"></div>
+    
+    <div id="msg" style="color:#00ffcc; background: #111;">待機中...</div>
+    
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script type="module">
@@ -58,16 +62,18 @@
             score: { p1: 0, p2: 0 }
         };
 
-        // ボタンが押された時の処理
+        const msgBox = document.getElementById("msg");
+
         document.getElementById("joinBtn").onclick = () => {
             myName = document.getElementById("nameInput").value || "Player";
             gameId = "room_" + (document.getElementById("roomInput").value || "123");
             
-            // 画面切り替え
             document.getElementById("lobby").style.display = "none";
             document.getElementById("hud").style.display = "flex";
             canvas.style.display = "block";
-            document.getElementById("msg").innerText = "接続中...";
+            
+            msgBox.style.color = "#00ffcc";
+            msgBox.innerText = "手順1: データベースに接続中...";
 
             startConnection();
         };
@@ -76,24 +82,37 @@
             const gameRef = ref(db, `games/${gameId}`);
             const playersRef = ref(db, `games/${gameId}/players`);
 
-            // 役割決定（P1かP2か）
+            // ★ここでエラーが起きていないか監視します
             onValue(playersRef, (s) => {
-                if (myRole) return;
-                const pData = s.val() || {};
-                if (!pData.p1) myRole = "p1";
-                else if (!pData.p2) myRole = "p2";
-                else { alert("満員です"); location.reload(); return; }
+                try {
+                    if (myRole) return;
+                    const pData = s.val() || {};
+                    if (!pData.p1) myRole = "p1";
+                    else if (!pData.p2) myRole = "p2";
+                    else { alert("満員です"); location.reload(); return; }
 
-                document.getElementById("msg").innerText = `あなたは ${myRole==='p1'?'BLUE(下)':'RED(上)'} です`;
-                
-                // 自分の名前を登録
-                update(ref(db, `games/${gameId}/${myRole}`), { name: myName });
-                const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
-                set(presenceRef, true);
-                onDisconnect(presenceRef).remove();
+                    msgBox.innerText = `手順2: 成功！あなたは ${myRole==='p1'?'BLUE(下)':'RED(上)'} です`;
+                    
+                    update(ref(db, `games/${gameId}/${myRole}`), { name: myName })
+                        .catch(err => { msgBox.style.color = "red"; msgBox.innerText = "書込エラー: " + err.message; });
+
+                    const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
+                    set(presenceRef, true);
+                    onDisconnect(presenceRef).remove();
+                    
+                    updateLoop(); // ゲーム開始
+                    
+                } catch (e) {
+                    msgBox.style.color = "red";
+                    msgBox.innerText = "処理エラー: " + e.message;
+                }
+            }, (error) => {
+                // ★もしルール設定などで読み込み拒否されたらここに出ます
+                msgBox.style.color = "red";
+                msgBox.style.background = "#500";
+                msgBox.innerText = "🛑 読込エラー: " + error.message + " (Firebaseのルール設定を確認してください)";
             }, { onlyOnce: true });
 
-            // データの同期
             onValue(gameRef, (snap) => {
                 const data = snap.val();
                 if (!data) return;
@@ -106,8 +125,6 @@
                     document.getElementById("s2").innerText = data.score.p2;
                 }
             });
-
-            updateLoop();
         }
 
         canvas.addEventListener("mousemove", (e) => {
@@ -116,7 +133,6 @@
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             let curY = (myRole === "p1") ? Math.max(330, Math.min(570, my)) : Math.max(30, Math.min(270, my));
-            
             const vx = mx - gameState[myRole].x, vy = curY - gameState[myRole].y;
             update(ref(db, `games/${gameId}/${myRole}`), { x: mx, y: curY, vx, vy, name: myName });
         });
@@ -125,7 +141,7 @@
             if (myRole === "p1") {
                 let p = gameState.puck;
                 p.x += p.vx; p.y += p.vy;
-                p.vx *= 0.99; p.vy *= 0.99; // 摩擦
+                p.vx *= 0.99; p.vy *= 0.99;
 
                 if (p.x < 15 || p.x > 385) { p.vx *= -0.7; p.x = p.x < 15 ? 15 : 385; }
                 if (p.y < 0 || p.y > 600) {
