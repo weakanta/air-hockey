@@ -2,32 +2,34 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Air Hockey - Fix</title>
+    <title>Air Hockey Online</title>
     <style>
-        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; }
-        #lobby { background: #2a2a2a; padding: 20px; border-radius: 10px; width: 300px; margin: 50px auto; border: 2px solid #0077ff; }
-        input { width: 80%; padding: 10px; margin: 10px 0; border-radius: 5px; border: none; }
-        /* ボタンを大きく、分かりやすくしました */
-        #joinBtn { width: 90%; padding: 15px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 18px; font-weight: bold; }
-        #joinBtn:active { background: #0055cc; }
-        canvas { border: 2px solid #444; background: #000; display: none; margin: 10px auto; }
-        #msg { color: #00ffcc; margin: 10px; }
+        body { background: #1a1a1a; text-align: center; color: white; font-family: sans-serif; margin: 0; overflow: hidden; }
+        #lobby { background: #2a2a2a; padding: 30px; border-radius: 15px; width: 300px; margin: 50px auto; border: 2px solid #0077ff; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 5px; border: none; font-size: 16px; }
+        #joinBtn { width: 95%; padding: 15px; background: #0077ff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 18px; font-weight: bold; }
+        canvas { border: 4px solid #444; background: radial-gradient(circle, #002b4d 0%, #00111a 100%); display: none; margin: 10px auto; cursor: none; }
+        .hud { display: none; justify-content: space-around; padding: 10px; background: #222; }
+        .score { font-size: 32px; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div id="lobby">
-        <h2>AIR HOCKEY</h2>
-        <input type="text" id="nameInput" placeholder="名前を入力" value="Player">
+        <h2 style="margin-top:0;">AIR HOCKEY</h2>
+        <input type="text" id="nameInput" placeholder="あなたの名前" value="Player">
         <input type="text" id="roomInput" placeholder="部屋番号" value="123">
-        <button type="button" id="joinBtn">ゲーム開始！</button>
+        <button id="joinBtn">ゲーム開始！</button>
     </div>
 
-    <div id="msg"></div>
+    <div id="hud" class="hud">
+        <div style="color:#ff3300"><div id="n2">RED</div><div id="s2" class="score">0</div></div>
+        <div style="color:#0077ff"><div id="n1">BLUE</div><div id="s1" class="score">0</div></div>
+    </div>
+    <div id="msg" style="color:#00ffcc; margin:10px;"></div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
 
     <script type="module">
-        // Firebaseの読み込み
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, onValue, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
@@ -44,35 +46,116 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // ボタンの動作を定義
-        const joinBtn = document.getElementById("joinBtn");
-        joinBtn.addEventListener("click", () => {
-            const name = document.getElementById("nameInput").value;
-            const room = document.getElementById("roomInput").value;
-            
-            if(!room) {
-                alert("部屋番号を入力してください");
-                return;
-            }
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const paddleRadius = 30, puckRadius = 15;
+        
+        let myRole = null, myName = "", gameId = "";
+        let gameState = {
+            p1: { x: 200, y: 550, vx: 0, vy: 0, name: "" },
+            p2: { x: 200, y: 50, vx: 0, vy: 0, name: "" },
+            puck: { x: 200, y: 300, vx: 0, vy: 2 },
+            score: { p1: 0, p2: 0 }
+        };
 
-            console.log("Button clicked!"); // ブラウザのF12で見れるログ
-            document.getElementById("msg").innerText = "接続中...";
-            document.getElementById("lobby").style.display = "none";
-            document.getElementById("gameCanvas").style.display = "block";
+        // ボタンが押された時の処理
+        document.getElementById("joinBtn").onclick = () => {
+            myName = document.getElementById("nameInput").value || "Player";
+            gameId = "room_" + (document.getElementById("roomInput").value || "123");
             
-            // 通信開始
-            startHearts(room, name);
+            // 画面切り替え
+            document.getElementById("lobby").style.display = "none";
+            document.getElementById("hud").style.display = "flex";
+            canvas.style.display = "block";
+            document.getElementById("msg").innerText = "接続中...";
+
+            startConnection();
+        };
+
+        function startConnection() {
+            const gameRef = ref(db, `games/${gameId}`);
+            const playersRef = ref(db, `games/${gameId}/players`);
+
+            // 役割決定（P1かP2か）
+            onValue(playersRef, (s) => {
+                if (myRole) return;
+                const pData = s.val() || {};
+                if (!pData.p1) myRole = "p1";
+                else if (!pData.p2) myRole = "p2";
+                else { alert("満員です"); location.reload(); return; }
+
+                document.getElementById("msg").innerText = `あなたは ${myRole==='p1'?'BLUE(下)':'RED(上)'} です`;
+                
+                // 自分の名前を登録
+                update(ref(db, `games/${gameId}/${myRole}`), { name: myName });
+                const presenceRef = ref(db, `games/${gameId}/players/${myRole}`);
+                set(presenceRef, true);
+                onDisconnect(presenceRef).remove();
+            }, { onlyOnce: true });
+
+            // データの同期
+            onValue(gameRef, (snap) => {
+                const data = snap.val();
+                if (!data) return;
+                if (data.p1) { gameState.p1 = data.p1; document.getElementById("n1").innerText = data.p1.name; }
+                if (data.p2) { gameState.p2 = data.p2; document.getElementById("n2").innerText = data.p2.name; }
+                if (data.puck && myRole !== "p1") gameState.puck = data.puck;
+                if (data.score) {
+                    gameState.score = data.score;
+                    document.getElementById("s1").innerText = data.score.p1;
+                    document.getElementById("s2").innerText = data.score.p2;
+                }
+            });
+
+            updateLoop();
+        }
+
+        canvas.addEventListener("mousemove", (e) => {
+            if (!myRole) return;
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            let curY = (myRole === "p1") ? Math.max(330, Math.min(570, my)) : Math.max(30, Math.min(270, my));
+            
+            const vx = mx - gameState[myRole].x, vy = curY - gameState[myRole].y;
+            update(ref(db, `games/${gameId}/${myRole}`), { x: mx, y: curY, vx, vy, name: myName });
         });
 
-        function startHearts(room, name) {
-            const gameId = "room_" + room;
-            const gameRef = ref(db, `games/${gameId}`);
-            
-            // 接続テスト（画像 で成功していた処理）
-            set(ref(db, `games/${gameId}/last_access`), Date.now());
-            
-            // ここにゲームの同期プログラムが入ります
-            // (まずはロビーが消えてキャンバスが出るかを確認しましょう)
+        function updateLoop() {
+            if (myRole === "p1") {
+                let p = gameState.puck;
+                p.x += p.vx; p.y += p.vy;
+                p.vx *= 0.99; p.vy *= 0.99; // 摩擦
+
+                if (p.x < 15 || p.x > 385) { p.vx *= -0.7; p.x = p.x < 15 ? 15 : 385; }
+                if (p.y < 0 || p.y > 600) {
+                    if (p.x > 125 && p.x < 275) {
+                        if (p.y < 0) gameState.score.p1++; else gameState.score.p2++;
+                        p.x = 200; p.y = 300; p.vx = 0; p.vy = 2;
+                    } else { p.vy *= -0.7; p.y = p.y < 0 ? 0 : 600; }
+                }
+                checkCollision(gameState.p1); checkCollision(gameState.p2);
+                update(ref(db, `games/${gameId}`), { puck: p, score: gameState.score });
+            }
+            draw();
+            requestAnimationFrame(updateLoop);
+        }
+
+        function checkCollision(pad) {
+            let p = gameState.puck;
+            let dist = Math.hypot(p.x - pad.x, p.y - pad.y);
+            if (dist < 45) {
+                let angle = Math.atan2(p.y - pad.y, p.x - pad.x);
+                p.vx = Math.cos(angle) * 7; p.vy = Math.sin(angle) * 7;
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, 400, 600);
+            ctx.strokeStyle = "#444"; ctx.beginPath(); ctx.moveTo(0,300); ctx.lineTo(400,300); ctx.stroke();
+            ctx.fillStyle = "#0077ff"; ctx.beginPath(); ctx.arc(gameState.p1.x, gameState.p1.y, 30, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#ff3300"; ctx.beginPath(); ctx.arc(gameState.p2.x, gameState.p2.y, 30, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(gameState.puck.x, gameState.puck.y, 15, 0, Math.PI*2); ctx.fill();
         }
     </script>
 </body>
